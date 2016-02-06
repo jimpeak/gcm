@@ -1,8 +1,8 @@
 name:                gcm
-version:             0.1.0.0
+version:             0.0.1
 synopsis:            Send notification through Google Cloud Messaging
 description:         Please see README.md
-homepage:            http://github.com/githubuser/gcm#readme
+homepage:            http://github.com/jimpeak/gcm#readme
 license:             BSD3
 license-file:        LICENSE
 author:              Andre Paquet
