@@ -2,26 +2,24 @@
 module Lib
     ( Message
     ) where
-import Data.HashMap
-import Data.Maybe
-import Data.Text
-import Control.Monad.IO.Class
-import Control.Retry
-import Network.Wreq as W hiding (Response)
-import Data.Default.Class
-import Control.Lens hiding ((.=))
-import Data.Aeson hiding (Result)
-import Data.Aeson.TH
-import Data.Aeson.Types hiding (Result)
+
+import           Control.Lens           hiding ((.=))
+import           Control.Retry (retrying)
+import           Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, decode)
+import           Data.Aeson.Types (Value(Object), Pair, (.:), (.=), object)
+import           Data.Default.Class (def)
+import           Data.Maybe (isNothing, Maybe)
+import           Data.Text (Text)
+import           Network.Wreq (postWith, defaults, param, Options, responseBody)
 
 data Message = Message {
-  _registrationIDs :: [String],
-  _collapseKey :: String,
-  _data :: [Pair],
-  _delayWhileIdle :: Bool,
-  _ttl :: Int,
+  _registrationIDs       :: [String],
+  _collapseKey           :: String,
+  _data                  :: [Pair],
+  _delayWhileIdle        :: Bool,
+  _ttl                   :: Int,
   _restrictedPackageName :: String,
-  _dryRun :: Bool
+  _dryRun                :: Bool
   }
 
 instance ToJSON Message where
@@ -36,11 +34,11 @@ instance ToJSON Message where
      ]
 
 data Response = Response {
-  _multicastId :: Integer,
-  _success :: Int,
-  _failure :: Int,
+  _multicastId  :: Integer,
+  _success      :: Int,
+  _failure      :: Int,
   _canonicalIds :: Int,
-  _results :: [Result]
+  _results      :: [Result]
   }
 
 instance FromJSON Response where
@@ -52,9 +50,9 @@ instance FromJSON Response where
                                 v .: "results"
 
 data Result = Result {
-  _messageId :: String,
+  _messageId      :: String,
   _registrationId :: String,
-  _error :: String
+  _error          :: String
   }
 
 instance FromJSON Result where
@@ -64,9 +62,9 @@ instance FromJSON Result where
                                v .: "error"
 
 data Config = Config {
-  _key :: Text,
+  _key     :: Text,
   _noRetry :: Int
-                     }
+  }
 
 defConf = Config "" 0
 
@@ -76,11 +74,11 @@ maxBackoffDelay = 1024000
 
 send :: Config -> Message -> IO (Maybe Response)
 send cfg msg = do
-  let opts = W.defaults & param "Authorization" .~ [_key cfg]
+  let opts = defaults & param "Authorization" .~ [_key cfg]
   retrying def (const $ return . isNothing) (\_ -> send' opts msg)
 
-send' :: W.Options -> Message -> IO (Maybe Response)
+send' :: Options -> Message -> IO (Maybe Response)
 send' opts msg = do
-  r <- W.postWith opts gcmSendEndpoint (toJSON msg)
+  r <- postWith opts gcmSendEndpoint (toJSON msg)
   let body = r ^. responseBody
   return $ decode body
