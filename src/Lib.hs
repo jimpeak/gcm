@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TypeSynonymInstances, FlexibleInstances #-}
 module Lib
     ( Message
     ) where
@@ -6,24 +6,30 @@ import           Prelude hiding (concat)
 import           Control.Lens           hiding ((.=))
 import           Control.Retry (retrying)
 import           Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, decode)
-import           Data.Aeson.Types (Value(Object), Pair, (.:), (.=), object)
+import           Data.Aeson.Types (Value(Object), (.:), (.=), object)
 import           Data.Default.Class (def)
 import           Data.Maybe (isNothing, Maybe)
 import           Data.Text (Text)
 import           Data.ByteString (ByteString, concat)
 import           Network.Wreq (postWith, defaults, header, Options, responseBody)
 
-data Message = Message {
+type Pair = (Text, Text)
+instance ToJSON Pair where
+    toJSON (k, v) = object [
+      k .= v
+      ]
+
+data Message a = Message {
   _registrationIDs       :: [String],
   _collapseKey           :: String,
-  _data                  :: [Pair],
+  _data                  :: a,
   _delayWhileIdle        :: Bool,
   _ttl                   :: Int,
   _restrictedPackageName :: String,
   _dryRun                :: Bool
   }
 
-instance ToJSON Message where
+instance ToJSON a => ToJSON (Message a) where
   toJSON (Message r ck d dwi t rpn dr) = object [
      "registration_ids" .= r
      , "data" .= d
@@ -68,13 +74,13 @@ gcmSendEndpoint = "https://android.googleapis.com/gcm/send"
 backoffInitialDelay = 1000
 maxBackoffDelay = 1024000
 
-send :: Config -> Message -> IO (Maybe Response)
+send :: ToJSON a => Config -> Message a -> IO (Maybe Response)
 send cfg msg = do
   let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
                       & header "Content-Type" .~ ["application/json"]
   retrying def (const $ return . isNothing) (\_ -> send' opts msg)
 
-send' :: Options -> Message -> IO (Maybe Response)
+send' :: ToJSON a => Options -> Message a -> IO (Maybe Response)
 send' opts msg = do
   r <- postWith opts gcmSendEndpoint (toJSON msg)
   let body = r ^. responseBody
