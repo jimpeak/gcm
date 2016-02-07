@@ -27,6 +27,7 @@ library
     , transformers
     , text
     , lens
+    , bytestring
 
 test-suite gcm-test
   type:                exitcode-stdio-1.0

@@ -2,7 +2,7 @@
 module Lib
     ( Message
     ) where
-
+import           Prelude hiding (concat)
 import           Control.Lens           hiding ((.=))
 import           Control.Retry (retrying)
 import           Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, decode)
@@ -10,7 +10,8 @@ import           Data.Aeson.Types (Value(Object), Pair, (.:), (.=), object)
 import           Data.Default.Class (def)
 import           Data.Maybe (isNothing, Maybe)
 import           Data.Text (Text)
-import           Network.Wreq (postWith, defaults, param, Options, responseBody)
+import           Data.ByteString (ByteString, concat)
+import           Network.Wreq (postWith, defaults, header, Options, responseBody)
 
 data Message = Message {
   _registrationIDs       :: [String],
@@ -25,12 +26,7 @@ data Message = Message {
 instance ToJSON Message where
   toJSON (Message r ck d dwi t rpn dr) = object [
      "registration_ids" .= r
-     , "collapse_key" .= ck
      , "data" .= d
-     , "delay_while_idle" .= dwi
-     , "time_to_live" .= t
-     , "restricted_package_name" .= rpn
-     , "dry_ryn" .= dr
      ]
 
 data Response = Response {
@@ -62,7 +58,7 @@ instance FromJSON Result where
                                v .: "error"
 
 data Config = Config {
-  _key     :: Text,
+  _key     :: ByteString,
   _noRetry :: Int
   }
 
@@ -74,7 +70,8 @@ maxBackoffDelay = 1024000
 
 send :: Config -> Message -> IO (Maybe Response)
 send cfg msg = do
-  let opts = defaults & param "Authorization" .~ [_key cfg]
+  let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
+                      & header "Content-Type" .~ ["application/json"]
   retrying def (const $ return . isNothing) (\_ -> send' opts msg)
 
 send' :: Options -> Message -> IO (Maybe Response)
