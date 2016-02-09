@@ -90,7 +90,7 @@ send cfg msg = do
   if ok then do
       let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
                           & header "Content-Type" .~ ["application/json"]
-      retrying def (const $ return . isNothing) (\_ -> send' opts msg)
+      retrying def (\_ mr -> return $ isNothing mr) (\_ -> send' opts msg)
   else return Nothing
 
 send' :: ToJSON a => Options -> Message a -> IO (Maybe Response)
