@@ -28,6 +28,7 @@ library
     , text
     , lens
     , bytestring
+    , vector
 
 test-suite gcm-test
   type:                exitcode-stdio-1.0
