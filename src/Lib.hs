@@ -82,11 +82,9 @@ data Config = Config {
   _noRetry :: Int
   }
 
-data GcmError = GcmError String | GcmJsonError | GcmFailedError [String]
+data GcmStatus = GcmSuccess Response | GcmError String | GcmJsonError | GcmFailedError [String]
 
-type Gcm m = ExceptT GcmError m
-
-type GcmState a = StateT (Message a) IO (Either GcmError Response)
+type GcmState a = StateT (Message a) IO GcmStatus
 
 defConf = Config "" 0
 
@@ -94,39 +92,36 @@ gcmSendEndpoint = "https://android.googleapis.com/gcm/send"
 backoffInitialDelay = 1000
 maxBackoffDelay = 1024000
 
-send :: ToJSON a => Config -> Message a -> IO (Either GcmError Response)
+send :: ToJSON a => Config -> Message a -> IO GcmStatus
 send cfg msg = do
   ok <- chkMsg msg
   if ok then do
       let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
                           & header "Content-Type" .~ ["application/json"]
       evalStateT (compute opts) msg
-  else return $ Left (GcmError "Test")
+  else return $ GcmError "Test"
   where
       compute opts' = retrying def cond $ \_ -> do
           msg' <- get
           liftIO $ send' opts' msg'
-      cond _ mr =
-          case mr of
-            Left _ -> return True
-            Right (Response _ _ _ _ r) -> do
-                origMsg <- get
-                let ids = failedIds r
-                    msg = origMsg { _registrationIDs = fromList ids }
-                put msg
-                return False
+      cond _ (GcmSuccess r) = return False
+      cond _ (GcmFailedError ids) = do
+          origMsg <- get
+          put origMsg { _registrationIDs = fromList ids }
+          return True
+      cond _ _ = return True
 
-send' :: ToJSON a => Options -> Message a -> IO (Either GcmError Response)
+send' :: ToJSON a => Options -> Message a -> IO GcmStatus
 send' opts msg = do
   r <- postWith opts gcmSendEndpoint (toJSON msg)
   let body = r ^. responseBody
-  maybeToEither $ decode body
+  maybeToStatus $ decode body
 
-maybeToEither :: Maybe Response -> IO (Either GcmError Response)
-maybeToEither Nothing = return $ Left GcmJsonError
-maybeToEither (Just r@(Response _ _ f _ rs))
-    | f == 0 = return $ Right r
-    | otherwise = return $ Left $ GcmFailedError $ failedIds rs
+maybeToStatus :: Maybe Response -> IO GcmStatus
+maybeToStatus Nothing = return GcmJsonError
+maybeToStatus (Just r@(Response _ _ f _ rs))
+    | f == 0 = return $ GcmSuccess r
+    | otherwise = return $ GcmFailedError $ failedIds rs
 
 failedIds rs = map _registrationId [i | i <- rs, _error i == "Unavailable"]
 
