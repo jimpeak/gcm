@@ -14,9 +14,13 @@ import           Data.Aeson.Types (Value(Object), (.:), (.=), object)
 import           Data.Default.Class (def)
 import           Data.Maybe (isNothing, Maybe)
 import           Data.Text (Text)
-import           Data.Vector (Vector, length)
+import           Data.Vector (Vector, length, fromList)
 import           Data.ByteString (ByteString, concat)
 import           Network.Wreq (postWith, defaults, header, Options, responseBody)
+import           Control.Monad.Trans.Except (ExceptT, runExceptT)
+import           Data.Either (Either(Right), isLeft)
+import           Control.Monad.Trans.State (StateT, evalStateT, get, put)
+import           Control.Monad.IO.Class (liftIO)
 
 type Payload = (Text, Text)
 instance ToJSON Payload where
@@ -78,26 +82,50 @@ data Config = Config {
   _noRetry :: Int
   }
 
+data GcmError = GcmError String
+
+type Gcm m = ExceptT GcmError m
+
+type GcmState a = StateT (Message a) IO (Either GcmError Response)
+
 defConf = Config "" 0
 
 gcmSendEndpoint = "https://android.googleapis.com/gcm/send"
 backoffInitialDelay = 1000
 maxBackoffDelay = 1024000
 
-send :: ToJSON a => Config -> Message a -> IO (Maybe Response)
+send :: ToJSON a => Config -> Message a -> IO (Either GcmError Response)
 send cfg msg = do
   ok <- chkMsg msg
   if ok then do
       let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
                           & header "Content-Type" .~ ["application/json"]
-      retrying def (\_ mr -> return $ isNothing mr) (\_ -> send' opts msg)
-  else return Nothing
+      evalStateT (compute opts) msg
+  else return $ Left (GcmError "Test")
+  where
+      compute opts' = retrying def cond $ \_ -> do
+          msg' <- get
+          liftIO $ send' opts' msg'
+      cond _ mr =
+          case mr of
+            Left _ -> return True
+            Right rr@(Response _ _ _ _ r) -> do
+                origMsg <- get
+                let ids = map _registrationId r
+                    msg = origMsg { _registrationIDs = fromList ids }
+                put msg
+                return False
 
-send' :: ToJSON a => Options -> Message a -> IO (Maybe Response)
+send' :: ToJSON a => Options -> Message a -> IO (Either GcmError Response)
 send' opts msg = do
   r <- postWith opts gcmSendEndpoint (toJSON msg)
   let body = r ^. responseBody
-  return $ decode body
+  maybeToEither $ decode body
+
+maybeToEither mr =
+    case mr of
+        Nothing -> return $ Left $ GcmError "test"
+        Just r -> return $ Right r
 
 chkMsg (Message v _ _ _ t _ _)
     | length v == 0 = return False
