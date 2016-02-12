@@ -82,7 +82,7 @@ data Config = Config {
   _noRetry :: Int
   }
 
-data GcmError = GcmError String
+data GcmError = GcmError String | GcmJsonError | GcmFailedError [String]
 
 type Gcm m = ExceptT GcmError m
 
@@ -109,9 +109,9 @@ send cfg msg = do
       cond _ mr =
           case mr of
             Left _ -> return True
-            Right rr@(Response _ _ _ _ r) -> do
+            Right (Response _ _ _ _ r) -> do
                 origMsg <- get
-                let ids = map _registrationId r
+                let ids = failedIds r
                     msg = origMsg { _registrationIDs = fromList ids }
                 put msg
                 return False
@@ -122,10 +122,13 @@ send' opts msg = do
   let body = r ^. responseBody
   maybeToEither $ decode body
 
-maybeToEither mr =
-    case mr of
-        Nothing -> return $ Left $ GcmError "test"
-        Just r -> return $ Right r
+maybeToEither :: Maybe Response -> IO (Either GcmError Response)
+maybeToEither Nothing = return $ Left GcmJsonError
+maybeToEither (Just r@(Response _ _ f _ rs))
+    | f == 0 = return $ Right r
+    | otherwise = return $ Left $ GcmFailedError $ failedIds rs
+
+failedIds rs = map _registrationId [i | i <- rs, _error i == "Unavailable"]
 
 chkMsg (Message v _ _ _ t _ _)
     | length v == 0 = return False
