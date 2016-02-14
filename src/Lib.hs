@@ -5,20 +5,20 @@ module Lib
     , Config
     , defConf
     , Payload
+    , GcmStatus
     ) where
 import           Prelude hiding (concat, length)
 import           Control.Lens           hiding ((.=))
-import           Control.Retry (retrying)
+import           Control.Retry (retrying, RetryStatus)
 import           Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, decode)
-import           Data.Aeson.Types (Value(Object), (.:), (.=), object)
+import           Data.Aeson.Types (Value(Object), (.:), (.:?), (.=), (.!=), object)
 import           Data.Default.Class (def)
-import           Data.Maybe (isNothing, Maybe)
+import           Data.Maybe (isNothing, Maybe, fromJust)
 import           Data.Text (Text)
 import           Data.Vector (Vector, length, fromList)
 import           Data.ByteString (ByteString, concat)
+import           Data.ByteString.Lazy.Char8 (unpack)
 import           Network.Wreq (postWith, defaults, header, Options, responseBody)
-import           Control.Monad.Trans.Except (ExceptT, runExceptT)
-import           Data.Either (Either(Right), isLeft)
 import           Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import           Control.Monad.IO.Class (liftIO)
 
@@ -67,24 +67,24 @@ instance FromJSON Response where
 
 data Result = Result {
   _messageId      :: String,
-  _registrationId :: String,
-  _error          :: String
+  _registrationId :: Maybe String,
+  _error          :: Maybe String
   }
 
 instance FromJSON Result where
   parseJSON (Object v) = Result <$>
                                v .: "message_id" <*>
-                               v .: "registration_id" <*>
-                               v .: "error"
+                               v .:? "registration_id" .!= Nothing <*>
+                               v .:? "error" .!= Nothing
 
 data Config = Config {
   _key     :: ByteString,
   _noRetry :: Int
   }
 
-data GcmStatus = GcmSuccess Response | GcmError String | GcmJsonError | GcmFailedError [String]
+data GcmStatus = GcmSuccess Response | GcmError String | GcmJsonError | GcmFailed [String]
 
-type GcmState a = StateT (Message a) IO GcmStatus
+--type GcmState a = StateT (Message a) IO GcmStatus
 
 defConf = Config "" 0
 
@@ -100,30 +100,34 @@ send cfg msg = do
                           & header "Content-Type" .~ ["application/json"]
       evalStateT (compute opts) msg
   else return $ GcmError "Test"
-  where
-      compute opts' = retrying def cond $ \_ -> do
-          msg' <- get
-          liftIO $ send' opts' msg'
-      cond _ (GcmSuccess r) = return False
-      cond _ (GcmFailedError ids) = do
-          origMsg <- get
-          put origMsg { _registrationIDs = fromList ids }
-          return True
-      cond _ _ = return True
+
+compute :: ToJSON a => Options -> StateT (Message a) IO GcmStatus
+compute opts' = retrying def cond $ \_ -> do
+    msg' <- get
+    liftIO $ send' opts' msg'
+
+cond :: RetryStatus -> GcmStatus -> StateT (Message a) IO Bool
+cond _ (GcmSuccess r) = return False
+cond _ (GcmFailed ids) = do
+    origMsg <- get
+    put origMsg { _registrationIDs = fromList ids }
+    return True
+cond _ _ = return True
 
 send' :: ToJSON a => Options -> Message a -> IO GcmStatus
 send' opts msg = do
   r <- postWith opts gcmSendEndpoint (toJSON msg)
   let body = r ^. responseBody
+  putStr $ unpack body
   maybeToStatus $ decode body
 
 maybeToStatus :: Maybe Response -> IO GcmStatus
 maybeToStatus Nothing = return GcmJsonError
 maybeToStatus (Just r@(Response _ _ f _ rs))
     | f == 0 = return $ GcmSuccess r
-    | otherwise = return $ GcmFailedError $ failedIds rs
+    | otherwise = return $ GcmFailed $ failedIds rs
 
-failedIds rs = map _registrationId [i | i <- rs, _error i == "Unavailable"]
+failedIds rs = map (fromJust . _registrationId) [i | i <- rs, fromJust (_error i) == "Unavailable"]
 
 chkMsg (Message v _ _ _ t _ _)
     | length v == 0 = return False
