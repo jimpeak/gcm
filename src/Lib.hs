@@ -17,7 +17,6 @@ import           Data.Maybe (isNothing, Maybe, fromJust)
 import           Data.Text (Text)
 import           Data.Vector (Vector, length, fromList)
 import           Data.ByteString (ByteString, concat)
-import           Data.ByteString.Lazy.Char8 (unpack)
 import           Network.Wreq (postWith, defaults, header, Options, responseBody)
 import           Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import           Control.Monad.IO.Class (liftIO)
@@ -118,7 +117,6 @@ send' :: ToJSON a => Options -> Message a -> IO GcmStatus
 send' opts msg = do
   r <- postWith opts gcmSendEndpoint (toJSON msg)
   let body = r ^. responseBody
-  putStr $ unpack body
   maybeToStatus $ decode body
 
 maybeToStatus :: Maybe Response -> IO GcmStatus
