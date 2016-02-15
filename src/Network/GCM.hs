@@ -9,11 +9,11 @@ module Network.GCM
     ) where
 import           Prelude hiding (concat, length)
 import           Control.Lens           hiding ((.=))
-import           Control.Retry (retrying, RetryStatus)
+import           Control.Retry (retrying, RetryStatus, constantDelay, limitRetries)
 import           Data.Aeson (ToJSON, FromJSON, toJSON, parseJSON, decode)
 import           Data.Aeson.Types (Value(Object), (.:), (.:?), (.=), (.!=), object)
-import           Data.Default.Class (def)
 import           Data.Maybe (isNothing, Maybe, fromJust)
+import           Data.Monoid ((<>))
 import           Data.Text (Text)
 import           Data.Vector (Vector, length, fromList)
 import           Data.ByteString (ByteString, concat)
@@ -78,7 +78,7 @@ instance FromJSON Result where
 
 data Config = Config {
   _key     :: ByteString,
-  _noRetry :: Int
+  _numRetry :: Int
   }
 
 data GcmStatus = GcmSuccess Response | GcmError String | GcmJsonError | GcmFailed [String]
@@ -94,18 +94,18 @@ maxBackoffDelay = 1024000
 send :: ToJSON a => Config -> Message a -> IO GcmStatus
 send cfg msg = do
   ok <- chkMsg msg
-  if ok then do
-      let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
-                          & header "Content-Type" .~ ["application/json"]
-                          & checkStatus .~ Just (\_ _ _ -> Nothing)
-
-      evalStateT (compute opts) msg
+  if ok then evalStateT (compute cfg) msg
   else return $ GcmError "Test"
 
-compute :: ToJSON a => Options -> StateT (Message a) IO GcmStatus
-compute opts' = retrying def cond $ \_ -> do
-    msg' <- get
-    liftIO $ send' opts' msg'
+compute :: ToJSON a => Config -> StateT (Message a) IO GcmStatus
+compute cfg = do
+    let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
+                        & header "Content-Type" .~ ["application/json"]
+                        & checkStatus .~ Just (\_ _ _ -> Nothing)
+        retryPolicy = constantDelay 20000 <> limitRetries (_numRetry cfg)
+    retrying retryPolicy cond $ \_ -> do
+        msg' <- get
+        liftIO $ send' opts msg'
 
 cond :: RetryStatus -> GcmStatus -> StateT (Message a) IO Bool
 cond _ (GcmSuccess r) = return False

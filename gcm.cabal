@@ -23,7 +23,6 @@ library
     , retry
     , aeson
     , wreq
-    , data-default-class
     , transformers
     , text
     , lens
