@@ -127,7 +127,7 @@ maybeToStatus (Just r@(Response _ _ f _ rs))
     | f == 0 = return $ GcmSuccess r
     | otherwise = return $ GcmFailed $ failedIds rs
 
-failedIds rs = map (fromJust . _registrationId) [i | i <- rs, fromJust (_error i) == "Unavailable"]
+failedIds = map (fromJust . _registrationId) . filter (\i -> fromJust (_error i) == "Unavailable")
 
 chkMsg (Message v _ _ _ t _ _)
     | length v == 0 = return False
