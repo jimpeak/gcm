@@ -17,7 +17,7 @@ import           Data.Maybe (isNothing, Maybe, fromJust)
 import           Data.Text (Text)
 import           Data.Vector (Vector, length, fromList)
 import           Data.ByteString (ByteString, concat)
-import           Network.Wreq (postWith, defaults, header, Options, responseBody)
+import           Network.Wreq (postWith, defaults, header, Options, responseBody, checkStatus)
 import           Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import           Control.Monad.IO.Class (liftIO)
 
@@ -65,14 +65,14 @@ instance FromJSON Response where
                                 v .: "results"
 
 data Result = Result {
-  _messageId      :: String,
+  _messageId      :: Maybe String,
   _registrationId :: Maybe String,
   _error          :: Maybe String
   }
 
 instance FromJSON Result where
   parseJSON (Object v) = Result <$>
-                               v .: "message_id" <*>
+                               v .:? "message_id" .!= Nothing <*>
                                v .:? "registration_id" .!= Nothing <*>
                                v .:? "error" .!= Nothing
 
@@ -97,6 +97,8 @@ send cfg msg = do
   if ok then do
       let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
                           & header "Content-Type" .~ ["application/json"]
+                          & checkStatus .~ Just (\_ _ _ -> Nothing)
+
       evalStateT (compute opts) msg
   else return $ GcmError "Test"
 
