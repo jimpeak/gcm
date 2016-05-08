@@ -5,7 +5,7 @@ module Network.GCM
     ( Message
     , send
     , Config
-    , defConf
+    , def
     , Payload
     , GcmStatus
     ) where
@@ -29,6 +29,7 @@ import           Network.Wreq              (Options, checkStatus, defaults,
 import           Prelude                   hiding (concat, length)
 
 type Payload = (Text, Text)
+
 instance ToJSON Payload where
     toJSON (k, v) = object [
       k .= v
@@ -99,8 +100,10 @@ instance Show GcmStatus where
     show GcmJsonError = "Error in JSON format submitted to google's servers. Probably caused by a bad registration ID."
     show (GcmFailed s) = "Delivery failed for registration ids " ++ unwords s
 
-defConf = Config "" 0
+def :: Config
+def = Config "" 0
 
+gcmSendEndpoint :: String
 gcmSendEndpoint = "https://android.googleapis.com/gcm/send"
 
 send :: ToJSON a => Config -> Message a -> IO GcmStatus
