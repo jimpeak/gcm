@@ -4,7 +4,7 @@
 module Network.GCM
     ( Message
     , send
-    , GcmConfig
+    , GcmConfig (_key, _numRetry)
     , def
     , Payload
     , GcmStatus
