@@ -4,7 +4,7 @@
 module Network.GCM
     ( Message
     , send
-    , Config
+    , GcmConfig
     , def
     , Payload
     , GcmStatus
@@ -87,7 +87,7 @@ instance FromJSON Result where
                                v .:? "registration_id" .!= Nothing <*>
                                v .:? "error" .!= Nothing
 
-data Config = Config {
+data GcmConfig = GcmConfig {
     _key      :: ByteString,
     _numRetry :: Int
     }
@@ -100,19 +100,19 @@ instance Show GcmStatus where
     show GcmJsonError = "Error in JSON format submitted to google's servers. Probably caused by a bad registration ID."
     show (GcmFailed s) = "Delivery failed for registration ids " ++ unwords s
 
-def :: Config
-def = Config "" 0
+def :: GcmConfig
+def = GcmConfig "" 0
 
 gcmSendEndpoint :: String
 gcmSendEndpoint = "https://android.googleapis.com/gcm/send"
 
-send :: ToJSON a => Config -> Message a -> IO GcmStatus
+send :: ToJSON a => GcmConfig -> Message a -> IO GcmStatus
 send cfg msg = do
     let ok = chkMsg msg
     if ok then evalStateT (compute cfg) msg
     else return $ GcmError "Test"
 
-compute :: ToJSON a => Config -> StateT (Message a) IO GcmStatus
+compute :: ToJSON a => GcmConfig -> StateT (Message a) IO GcmStatus
 compute cfg = do
     let opts = defaults & header "Authorization" .~ [concat ["key=", _key cfg]]
                         & header "Content-Type" .~ ["application/json"]
